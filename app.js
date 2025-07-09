@@ -56,6 +56,7 @@ let currentUser = null;
 let isAdmin = false;
 let colleagues = [];
 let manualColleagues = [];
+let isTicking = false;
 
 // =================================================================
 // GESTION DU SERVICE WORKER
@@ -74,25 +75,31 @@ if ('serviceWorker' in navigator) {
         }
 
         if (action === 'stopped') {
-            saveToFirestore(new Date(startTime));
+            saveToFirestore(new Date(startTime), event.data.timerData);
         }
     });
 }
 
 function postMessageToServiceWorker(message) {
-    return new Promise((resolve, reject) => {
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.ready.then(registration => {
-                registration.active.postMessage(message);
-                resolve();
-            }).catch(reject);
-        } else {
-            reject('Service Worker not supported');
-        }
-    });
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then(registration => {
+            registration.active.postMessage(message);
+        });
+    }
+}
+
+function updateServiceWorkerData() {
+    if (!isTicking) return; // Ne met à jour que si un pointage est actif
+    const data = {
+        colleagues,
+        chantier: chantierInput.value,
+        notes: notesInput.value
+    };
+    postMessageToServiceWorker({ action: 'updateTimerData', data });
 }
 
 function restoreUiFromServiceWorker(data) {
+    isTicking = true;
     alert("Un pointage en cours a été restauré.");
     colleagues = data.timerData.colleagues || [];
     chantierInput.value = data.timerData.chantier || "";
@@ -105,7 +112,7 @@ function restoreUiFromServiceWorker(data) {
 }
 
 // =================================================================
-// AUTHENTIFICATION ET GESTION UI
+// AUTHENTIFICATION
 // =================================================================
 
 loginBtn.onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
@@ -129,7 +136,7 @@ onAuthStateChanged(auth, async (user) => {
         authContainer.style.display = "none";
         logoutBtn.style.display = "block";
         loadHistory();
-        postMessageToServiceWorker({ action: 'getStatus' }); // ### CORRECTION ICI ###
+        postMessageToServiceWorker({ action: 'getStatus' });
     } else {
         appContent.style.display = "none";
         authContainer.style.display = "block";
@@ -137,16 +144,13 @@ onAuthStateChanged(auth, async (user) => {
     }
 });
 
-toggleHistoryBtn.onclick = () => {
-    const isHidden = historyContainer.classList.toggle("hidden");
-    toggleHistoryBtn.textContent = isHidden ? "Afficher l'historique" : "Cacher l'historique";
-};
 
 // =================================================================
 // LOGIQUE DU POINTAGE EN TEMPS RÉEL
 // =================================================================
 
 startBtn.onclick = () => {
+    isTicking = true;
     resetTrackerForm();
     renderColleaguesSelection(colleagues, colleaguesContainer);
     startBtn.style.display = "none";
@@ -154,33 +158,21 @@ startBtn.onclick = () => {
     steps[0].style.display = "block";
     
     const data = { colleagues, chantier: "", notes: "" };
-    postMessageToServiceWorker({ action: 'startTimer', data }); // ### CORRECTION ICI ###
+    postMessageToServiceWorker({ action: 'startTimer', data });
 };
-
-nextBtns.forEach((btn, index) => {
-    btn.addEventListener("click", () => {
-        if (index === 1 && chantierInput.value.trim() === "") {
-            alert("Veuillez entrer un nom de client/chantier.");
-            return;
-        }
-        steps[index].style.display = "none";
-        if (steps[index + 1]) {
-            steps[index + 1].style.display = "block";
-        }
-    });
-});
 
 stopBtn.onclick = () => {
-    postMessageToServiceWorker({ action: 'stopTimer' }); // ### CORRECTION ICI ###
+    postMessageToServiceWorker({ action: 'stopTimer' });
 };
 
-async function saveToFirestore(startTime) {
+async function saveToFirestore(startTime, timerData) {
     const endTime = new Date();
     const chantier = chantierInput.value.trim();
     const notesValue = notesInput.value.trim();
 
     if (!chantier) {
         alert("Le champ Client / Chantier est obligatoire pour enregistrer.");
+        resetTrackerForm(); // On réinitialise l'UI même si l'enregistrement échoue
         return;
     }
 
@@ -191,22 +183,24 @@ async function saveToFirestore(startTime) {
         timestamp: startTime.toISOString(),
         chantier,
         notes: `Heure de fin : ${endTime.toLocaleTimeString()}${notesValue ? " - " + notesValue : ""}`,
-        colleagues: colleagues.length ? colleagues : ["Seul"],
+        colleagues: timerData.colleagues.length ? timerData.colleagues : ["Seul"],
         createdAt: serverTimestamp()
     };
 
     try {
         await addDoc(pointagesCollection, docData);
         alert("Session enregistrée !");
-        resetTrackerForm();
-        loadHistory();
     } catch (e) {
         console.error("Erreur d'enregistrement:", e);
         alert("Erreur lors de l'enregistrement.");
+    } finally {
+        resetTrackerForm();
+        loadHistory();
     }
 }
 
 function resetTrackerForm() {
+    isTicking = false;
     colleagues = [];
     chantierInput.value = "";
     notesInput.value = "";
@@ -216,157 +210,15 @@ function resetTrackerForm() {
     renderColleaguesSelection([], colleaguesContainer);
 }
 
-// Le reste du code (fonctions pour le pointage MANUEL, l'historique et l'export) ne change pas
-// ...
+// Ajout des écouteurs pour la sauvegarde automatique
+chantierInput.addEventListener('input', updateServiceWorkerData);
+notesInput.addEventListener('input', updateServiceWorkerData);
+// (la sauvegarde pour les collègues est dans renderColleaguesSelection)
+
+// Le reste du code est ici...
 // =================================================================
-// LOGIQUE DU POINTAGE MANUEL
+// FONCTION COMMUNE POUR LA SÉLECTION DES COLLÈGUES
 // =================================================================
-
-manualBtn.onclick = () => {
-    manualForm.classList.toggle("hidden");
-    if (!manualForm.classList.contains("hidden")) {
-        manualColleagues = [];
-        renderColleaguesSelection(manualColleagues, manualColleaguesContainer);
-    }
-};
-
-manualForm.onsubmit = async (e) => {
-    e.preventDefault();
-    const chantier = document.getElementById("manualChantier").value.trim();
-    const date = document.getElementById("manualDate").value;
-    const startTimeValue = document.getElementById("manualStart").value;
-    const endTimeValue = document.getElementById("manualEnd").value;
-    const notes = document.getElementById("manualNotes").value.trim();
-
-    if (!chantier || !date || !startTimeValue || !endTimeValue) {
-        alert("Veuillez remplir le chantier, la date et les heures.");
-        return;
-    }
-
-    const startDateTime = new Date(`${date}T${startTimeValue}`);
-    const endDateTime = new Date(`${date}T${endTimeValue}`);
-
-    if (endDateTime <= startDateTime) {
-        alert("L'heure de fin doit être après l'heure de début.");
-        return;
-    }
-    
-    const docData = {
-        uid: currentUser.uid,
-        userEmail: currentUser.email,
-        userName: currentUser.displayName,
-        timestamp: startDateTime.toISOString(),
-        chantier,
-        notes: `(Saisie manuelle) Heure de fin : ${endDateTime.toLocaleTimeString()}${notes ? " - " + notes : ""}`,
-        colleagues: manualColleagues.length ? manualColleagues : ["Seul"],
-        createdAt: serverTimestamp()
-    };
-
-    try {
-        await addDoc(pointagesCollection, docData);
-        alert("Pointage manuel enregistré !");
-        manualForm.reset();
-        manualForm.classList.add("hidden");
-        loadHistory();
-    } catch (error) {
-        console.error("Erreur d'enregistrement manuel:", error);
-        alert("Une erreur est survenue.");
-    }
-};
-
-// =================================================================
-// HISTORIQUE ET EXPORT
-// =================================================================
-
-async function loadHistory() {
-    if (!currentUser) return;
-    historyList.innerHTML = "<p>Chargement...</p>";
-    
-    let q = isAdmin
-        ? query(pointagesCollection, orderBy("createdAt", "desc"))
-        : query(pointagesCollection, where("uid", "==", currentUser.uid), orderBy("createdAt", "desc"));
-
-    const querySnapshot = await getDocs(q);
-    historyList.innerHTML = "";
-    if (querySnapshot.empty) {
-        historyList.innerHTML = "<p>Aucun pointage trouvé.</p>";
-    }
-    querySnapshot.forEach(docSnap => {
-        const entryElement = createHistoryEntryElement(docSnap.id, docSnap.data());
-        historyList.appendChild(entryElement);
-    });
-}
-
-function createHistoryEntryElement(docId, d) {
-    const wrapper = document.createElement("div");
-    wrapper.className = "p-4 border rounded-lg bg-white relative shadow-sm";
-    const date = new Date(d.timestamp);
-
-    const userDisplay = isAdmin && d.userName ? `<div class="text-xs text-blue-600 font-semibold">${d.userName}</div>` : "";
-
-    wrapper.innerHTML = `
-      ${userDisplay}
-      <div class="font-bold">${date.toLocaleDateString()} à ${date.toLocaleTimeString()}</div>
-      <div><strong>Client / Chantier :</strong> ${d.chantier}</div>
-      <div><strong>Collègues :</strong> ${d.colleagues.join(", ")}</div>
-      <div class="mt-1 pt-1 border-t text-sm"><strong>Notes :</strong> ${d.notes}</div>
-    `;
-
-    const deleteBtn = document.createElement("button");
-    deleteBtn.textContent = "✖";
-    deleteBtn.className = "absolute top-2 right-3 text-gray-400 hover:text-red-600 font-bold";
-    deleteBtn.onclick = async () => {
-        if (confirm("Supprimer ce pointage ?")) {
-            await deleteDoc(doc(db, "pointages", docId));
-            loadHistory();
-        }
-    };
-    wrapper.appendChild(deleteBtn);
-    return wrapper;
-}
-
-exportBtn.onclick = async () => {
-    if (!currentUser) return;
-    
-    let q = isAdmin
-        ? query(pointagesCollection, orderBy("timestamp", "desc"))
-        : query(pointagesCollection, where("uid", "==", currentUser.uid), orderBy("timestamp", "desc"));
-    
-    const snap = await getDocs(q);
-    if (snap.empty) {
-        alert("Aucune donnée à exporter.");
-        return;
-    }
-
-    let csvContent = "Nom,Email,Date,Client-Chantier,Collegues,Notes\n";
-    snap.forEach(doc => {
-        const d = doc.data();
-        const date = new Date(d.timestamp).toLocaleString();
-        const sanitize = (str) => `"${(str || "").replace(/"/g, '""')}"`;
-        const row = [
-            sanitize(d.userName),
-            sanitize(d.userEmail),
-            sanitize(date),
-            sanitize(d.chantier),
-            sanitize(d.colleagues.join(", ")),
-            sanitize(d.notes)
-        ].join(",") + "\n";
-        csvContent += row;
-    });
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `export_pointages_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-};
-
-// =================================================================
-// FONCTION COMMUNE
-// =================================================================
-
 function renderColleaguesSelection(list, container) {
     container.innerHTML = "";
     ALL_COLLEAGUES.forEach(name => {
@@ -382,6 +234,10 @@ function renderColleaguesSelection(list, container) {
                 list.push(name);
             }
             updateColleagueButtonStyle(button, list.includes(name));
+            // On met à jour les données dans le SW si c'est le pointage en temps réel
+            if (container.id === 'colleaguesContainer') {
+                updateServiceWorkerData();
+            }
         };
         updateColleagueButtonStyle(button, list.includes(name));
         container.appendChild(button);
@@ -393,3 +249,133 @@ function updateColleagueButtonStyle(button, isSelected) {
         ? "px-4 py-2 rounded-full border bg-blue-600 text-white"
         : "px-4 py-2 rounded-full border bg-gray-200 hover:bg-gray-300";
 }
+
+// =================================================================
+// LOGIQUE DU POINTAGE MANUEL
+// =================================================================
+manualBtn.onclick = () => {
+    manualForm.classList.toggle("hidden");
+    if (!manualForm.classList.contains("hidden")) {
+        manualColleagues = [];
+        renderColleaguesSelection(manualColleagues, manualColleaguesContainer);
+    }
+};
+manualForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const chantier = document.getElementById("manualChantier").value.trim();
+    const date = document.getElementById("manualDate").value;
+    const startTimeValue = document.getElementById("manualStart").value;
+    const endTimeValue = document.getElementById("manualEnd").value;
+    const notes = document.getElementById("manualNotes").value.trim();
+    if (!chantier || !date || !startTimeValue || !endTimeValue) {
+        alert("Veuillez remplir le chantier, la date et les heures.");
+        return;
+    }
+    const startDateTime = new Date(`${date}T${startTimeValue}`);
+    const endDateTime = new Date(`${date}T${endTimeValue}`);
+    if (endDateTime <= startDateTime) {
+        alert("L'heure de fin doit être après l'heure de début.");
+        return;
+    }
+    const docData = {
+        uid: currentUser.uid,
+        userEmail: currentUser.email,
+        userName: currentUser.displayName,
+        timestamp: startDateTime.toISOString(),
+        chantier,
+        notes: `(Saisie manuelle) Heure de fin : ${endDateTime.toLocaleTimeString()}${notes ? " - " + notes : ""}`,
+        colleagues: manualColleagues.length ? manualColleagues : ["Seul"],
+        createdAt: serverTimestamp()
+    };
+    try {
+        await addDoc(pointagesCollection, docData);
+        alert("Pointage manuel enregistré !");
+        manualForm.reset();
+        manualForm.classList.add("hidden");
+        loadHistory();
+    } catch (error) {
+        console.error("Erreur d'enregistrement manuel:", error);
+        alert("Une erreur est survenue.");
+    }
+};
+
+// =================================================================
+// HISTORIQUE ET EXPORT
+// =================================================================
+toggleHistoryBtn.onclick = () => {
+    const isHidden = historyContainer.classList.toggle("hidden");
+    toggleHistoryBtn.textContent = isHidden ? "Afficher l'historique" : "Cacher l'historique";
+};
+async function loadHistory() {
+    if (!currentUser) return;
+    historyList.innerHTML = "<p>Chargement...</p>";
+    let q = isAdmin
+        ? query(pointagesCollection, orderBy("createdAt", "desc"))
+        : query(pointagesCollection, where("uid", "==", currentUser.uid), orderBy("createdAt", "desc"));
+    const querySnapshot = await getDocs(q);
+    historyList.innerHTML = "";
+    if (querySnapshot.empty) {
+        historyList.innerHTML = "<p>Aucun pointage trouvé.</p>";
+    }
+    querySnapshot.forEach(docSnap => {
+        const entryElement = createHistoryEntryElement(docSnap.id, docSnap.data());
+        historyList.appendChild(entryElement);
+    });
+}
+function createHistoryEntryElement(docId, d) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "p-4 border rounded-lg bg-white relative shadow-sm";
+    const date = new Date(d.timestamp);
+    const userDisplay = isAdmin && d.userName ? `<div class="text-xs text-blue-600 font-semibold">${d.userName}</div>` : "";
+    wrapper.innerHTML = `
+      ${userDisplay}
+      <div class="font-bold">${date.toLocaleDateString()} à ${date.toLocaleTimeString()}</div>
+      <div><strong>Client / Chantier :</strong> ${d.chantier}</div>
+      <div><strong>Collègues :</strong> ${d.colleagues.join(", ")}</div>
+      <div class="mt-1 pt-1 border-t text-sm"><strong>Notes :</strong> ${d.notes}</div>
+    `;
+    const deleteBtn = document.createElement("button");
+    deleteBtn.textContent = "✖";
+    deleteBtn.className = "absolute top-2 right-3 text-gray-400 hover:text-red-600 font-bold";
+    deleteBtn.onclick = async () => {
+        if (confirm("Supprimer ce pointage ?")) {
+            await deleteDoc(doc(db, "pointages", docId));
+            loadHistory();
+        }
+    };
+    wrapper.appendChild(deleteBtn);
+    return wrapper;
+}
+exportBtn.onclick = async () => {
+    if (!currentUser) return;
+    let q = isAdmin
+        ? query(pointagesCollection, orderBy("timestamp", "desc"))
+        : query(pointagesCollection, where("uid", "==", currentUser.uid), orderBy("timestamp", "desc"));
+    const snap = await getDocs(q);
+    if (snap.empty) {
+        alert("Aucune donnée à exporter.");
+        return;
+    }
+    let csvContent = "Nom,Email,Date,Client-Chantier,Collegues,Notes\n";
+    snap.forEach(doc => {
+        const d = doc.data();
+        const date = new Date(d.timestamp).toLocaleString();
+        const sanitize = (str) => `"${(str || "").replace(/"/g, '""')}"`;
+        const row = [
+            sanitize(d.userName),
+            sanitize(d.userEmail),
+            sanitize(date),
+            sanitize(d.chantier),
+            sanitize(d.colleagues.join(", ")),
+            sanitize(d.notes)
+        ].join(",") + "\n";
+        csvContent += row;
+    });
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `export_pointages_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+};

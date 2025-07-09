@@ -67,18 +67,10 @@ if ('serviceWorker' in navigator) {
         .catch(error => console.log('Erreur Service Worker:', error));
 
     navigator.serviceWorker.addEventListener('message', event => {
-        const { action, startTime, timerData } = event.data;
+        const { action, startTime } = event.data;
 
         if (action === 'status' && event.data.isTicking) {
-            alert("Un pointage en cours a été restauré.");
-            colleagues = timerData.colleagues || [];
-            chantierInput.value = timerData.chantier || "";
-            notesInput.value = timerData.notes || "";
-            
-            startBtn.style.display = "none";
-            stopBtn.style.display = "block";
-            renderColleaguesSelection(colleagues, colleaguesContainer);
-            steps.forEach(step => step.style.display = "block");
+            restoreUiFromServiceWorker(event.data);
         }
 
         if (action === 'stopped') {
@@ -87,10 +79,29 @@ if ('serviceWorker' in navigator) {
     });
 }
 
-function getTimerStatus() {
-    if (navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ action: 'getStatus' });
-    }
+function postMessageToServiceWorker(message) {
+    return new Promise((resolve, reject) => {
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then(registration => {
+                registration.active.postMessage(message);
+                resolve();
+            }).catch(reject);
+        } else {
+            reject('Service Worker not supported');
+        }
+    });
+}
+
+function restoreUiFromServiceWorker(data) {
+    alert("Un pointage en cours a été restauré.");
+    colleagues = data.timerData.colleagues || [];
+    chantierInput.value = data.timerData.chantier || "";
+    notesInput.value = data.timerData.notes || "";
+    
+    startBtn.style.display = "none";
+    stopBtn.style.display = "block";
+    renderColleaguesSelection(colleagues, colleaguesContainer);
+    steps.forEach(step => step.style.display = "block");
 }
 
 // =================================================================
@@ -118,7 +129,7 @@ onAuthStateChanged(auth, async (user) => {
         authContainer.style.display = "none";
         logoutBtn.style.display = "block";
         loadHistory();
-        setTimeout(getTimerStatus, 1000); // Attendre un peu que le SW soit prêt
+        postMessageToServiceWorker({ action: 'getStatus' }); // ### CORRECTION ICI ###
     } else {
         appContent.style.display = "none";
         authContainer.style.display = "block";
@@ -142,14 +153,8 @@ startBtn.onclick = () => {
     stopBtn.style.display = "block";
     steps[0].style.display = "block";
     
-    const data = {
-        colleagues: [],
-        chantier: "",
-        notes: ""
-    };
-    if (navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ action: 'startTimer', data: data });
-    }
+    const data = { colleagues, chantier: "", notes: "" };
+    postMessageToServiceWorker({ action: 'startTimer', data }); // ### CORRECTION ICI ###
 };
 
 nextBtns.forEach((btn, index) => {
@@ -166,9 +171,7 @@ nextBtns.forEach((btn, index) => {
 });
 
 stopBtn.onclick = () => {
-    if (navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ action: 'stopTimer' });
-    }
+    postMessageToServiceWorker({ action: 'stopTimer' }); // ### CORRECTION ICI ###
 };
 
 async function saveToFirestore(startTime) {
@@ -213,6 +216,8 @@ function resetTrackerForm() {
     renderColleaguesSelection([], colleaguesContainer);
 }
 
+// Le reste du code (fonctions pour le pointage MANUEL, l'historique et l'export) ne change pas
+// ...
 // =================================================================
 // LOGIQUE DU POINTAGE MANUEL
 // =================================================================

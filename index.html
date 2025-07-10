@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ma Pointeuse</title>
+    <link rel="manifest" href="manifest.json">
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 text-gray-800 flex items-center justify-center min-h-screen p-4">
@@ -24,65 +25,40 @@
 
         <div id="app-content" class="hidden space-y-6">
 
-            <div id="tracker" class="space-y-4 p-4 border rounded-lg bg-slate-50">
-                <div class="flex justify-around gap-4">
-                    <button id="startBtn" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex-1">Démarrer</button>
-                    <button id="stopBtn" class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded flex-1 hidden">Arrêter et Enregistrer</button>
+            <form id="manualForm" class="space-y-4 border p-4 rounded-lg bg-slate-50">
+                <h3 class="font-bold text-center text-xl">Ajouter un nouveau pointage</h3>
+                <div>
+                    <label for="manualChantier" class="text-sm font-medium">Client / Chantier</label>
+                    <input id="manualChantier" type="text" class="w-full border p-2 rounded mt-1" required />
                 </div>
-                <div id="stepColleagues" class="hidden mt-4">
-                    <label class="font-semibold text-center block">1. Qui travaille avec vous ?</label>
-                    <div id="colleaguesContainer" class="flex flex-wrap gap-2 justify-center mt-2"></div>
-                    <button class="nextBtn bg-blue-600 text-white px-4 py-2 rounded w-full mt-4">Suivant</button>
-                </div>
-                <div id="stepChantier" class="hidden mt-4">
-                    <label for="chantierInput" class="font-semibold">2. Client / Chantier</label>
-                    <input id="chantierInput" type="text" placeholder="Nom du client ou du chantier" class="w-full border p-2 rounded mt-1" />
-                    <button class="nextBtn bg-blue-600 text-white px-4 py-2 rounded w-full mt-2">Suivant</button>
-                </div>
-                <div id="stepNotes" class="hidden mt-4">
-                    <label for="notesInput" class="font-semibold">3. Notes</label>
-                    <textarea id="notesInput" placeholder="Matériel, détails... (facultatif)" class="w-full border p-2 rounded mt-1"></textarea>
-                    <p class="text-sm text-gray-500 mt-2 text-center">Cliquez sur "Arrêter" pour terminer.</p>
-                </div>
-            </div>
-
-            <div class="border-t pt-4">
-                <button id="manualBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded w-full">➕ Ajouter un pointage manuel</button>
-                <form id="manualForm" class="hidden space-y-3 mt-4 border p-4 rounded bg-gray-50">
-                    <h3 class="font-bold text-center text-lg">Pointage Manuel</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
-                        <label for="manualChantier" class="text-sm font-medium">Client / Chantier</label>
-                        <input id="manualChantier" type="text" class="w-full border p-2 rounded mt-1" required />
-                    </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div>
-                            <label for="manualDate" class="text-sm font-medium">Date</label>
-                            <input id="manualDate" type="date" class="w-full border p-2 rounded mt-1" required />
-                        </div>
-                        <div>
-                            <label for="manualStart" class="text-sm font-medium">Début</label>
-                            <input id="manualStart" type="time" class="w-full border p-2 rounded mt-1" required />
-                        </div>
-                        <div>
-                            <label for="manualEnd" class="text-sm font-medium">Fin</label>
-                            <input id="manualEnd" type="time" class="w-full border p-2 rounded mt-1" required />
-                        </div>
+                        <label for="manualDate" class="text-sm font-medium">Date</label>
+                        <input id="manualDate" type="date" class="w-full border p-2 rounded mt-1" required />
                     </div>
                     <div>
-                        <label class="text-sm font-medium text-center block">Collègues</label>
-                        <div id="manualColleaguesContainer" class="flex flex-wrap gap-2 justify-center mt-2">
-                            </div>
+                        <label for="manualStart" class="text-sm font-medium">Début</label>
+                        <input id="manualStart" type="time" class="w-full border p-2 rounded mt-1" required />
                     </div>
                     <div>
-                        <label for="manualNotes" class="text-sm font-medium">Notes</label>
-                        <textarea id="manualNotes" class="w-full border p-2 rounded mt-1"></textarea>
+                        <label for="manualEnd" class="text-sm font-medium">Fin</label>
+                        <input id="manualEnd" type="time" class="w-full border p-2 rounded mt-1" required />
                     </div>
-                    <button type="submit" class="bg-purple-700 hover:bg-purple-800 text-white px-4 py-2 rounded w-full">Enregistrer ce pointage</button>
-                </form>
-            </div>
+                </div>
+                <div>
+                    <label class="text-sm font-medium text-center block">Collègues</label>
+                    <div id="manualColleaguesContainer" class="flex flex-wrap gap-2 justify-center mt-2">
+                        </div>
+                </div>
+                <div>
+                    <label for="manualNotes" class="text-sm font-medium">Notes</label>
+                    <textarea id="manualNotes" class="w-full border p-2 rounded mt-1"></textarea>
+                </div>
+                <button type="submit" class="bg-purple-700 hover:bg-purple-800 text-white px-4 py-2 rounded w-full">Enregistrer le pointage</button>
+            </form>
 
             <div class="border-t pt-4 space-y-2">
-                <button id="toggleHistoryBtn" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded w-full">Afficher l'historique</button>
+                <button id="toggleHistoryBtn" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded w-full">Afficher / Cacher l'historique</button>
                 <button id="exportBtn" class="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded w-full">Exporter tout en CSV</button>
             </div>
             
@@ -92,6 +68,6 @@
             </div>
         </div>
     </div>
-    <script type="module" src="app.js"></script>
+    <script type="module" src="./app.js"></script>
 </body>
 </html>
